@@ -1,0 +1,255 @@
+{
+  "name": "WhatsApp LLM Agent (WAHA + Claude)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "waha-llm-agent",
+        "options": {}
+      },
+      "id": "n1",
+      "name": "Webhook WAHA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "waha-llm-agent"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.event === 'message' && !$json.body.payload.fromMe && !!$json.body.payload.body && !String($json.body.payload.from).endsWith('@g.us') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n2",
+      "name": "Solo mensajes entrantes 1 a 1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "chatId",
+              "value": "={{ $json.body.payload.from }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "text",
+              "value": "={{ $json.body.payload.body }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "session",
+              "value": "={{ $json.body.session }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n3",
+      "name": "Extraer datos",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 600, system: $env.SYSTEM_PROMPT || \"Eres un asistente virtual amable y claro. Responde en español, de forma breve (máximo 3 párrafos cortos). Si no sabes algo, dilo y ofrece derivar la consulta a una persona. No inventes datos.\", messages: [{ role: 'user', content: $json.text }] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "n4",
+      "name": "Claude (API Messages)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        -60
+      ],
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "reply",
+              "value": "={{ $json.content[0].text }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "chatId",
+              "value": "={{ $('Extraer datos').item.json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "b3",
+              "name": "session",
+              "value": "={{ $('Extraer datos').item.json.session }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n5",
+      "name": "Preparar respuesta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        880,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAHA_URL }}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.WAHA_API_KEY }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chatId: $json.chatId, text: $json.reply, session: $json.session }) }}",
+        "options": {}
+      },
+      "id": "n6",
+      "name": "Enviar por WAHA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -60
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook WAHA": {
+      "main": [
+        [
+          {
+            "node": "Solo mensajes entrantes 1 a 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solo mensajes entrantes 1 a 1": {
+      "main": [
+        [
+          {
+            "node": "Extraer datos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extraer datos": {
+      "main": [
+        [
+          {
+            "node": "Claude (API Messages)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude (API Messages)": {
+      "main": [
+        [
+          {
+            "node": "Preparar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Enviar por WAHA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
